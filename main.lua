@@ -3,6 +3,7 @@ require 'torch'
 require 'nn'
 require 'nngraph'
 require 'optim'
+require 'image'
 
 nngraph.setDebug(false)
 
@@ -16,6 +17,7 @@ require 'load'
 
 local continuous = false
 data = load(continuous)
+local testset = data.test
 
 local input_size = data.train:size(2)
 local latent_variable_size = 20
@@ -59,10 +61,34 @@ local config = {
     learningRate = 0.001
 }
 
+function test(epoch)
+    local concat_image = nil
+    for i = 1,10 do
+        local mean, log_var = unpack(encoder:forward(testset[i]))
+        local z = nn.Sampler():forward({mean, log_var})
+        local out = decoder:forward(z)
+        local temp = nil
+        if continuous then
+            temp = out[1][1]:resize(1,28,28) 
+        else
+            --print(out:size())
+            temp = out:resize(1,28,28) 
+        end
+        if concat_image == nil then
+            concat_image = temp
+        else
+            --concatenate images along their width
+            concat_image = concat_image:cat(temp, 3)
+        end
+    end
+    image.save("./recon/reconstruct_digit"..epoch..".jpg", concat_image)
+end
+
 local state = {}
 
 epoch = 0
 while true do
+    model:training()
     epoch = epoch + 1
     local lowerbound = 0
     local tic = torch.tic()
@@ -116,6 +142,11 @@ while true do
         x, batchlowerbound = optim.adam(opfunc, parameters, config, state)
 
         lowerbound = lowerbound + batchlowerbound[1]
+    end
+
+    if epoch % 3 == 0 then
+        model:evaluate()
+        test(epoch)
     end
 
     print("Epoch: " .. epoch .. " Lowerbound: " .. lowerbound/N .. " time: " .. torch.toc(tic)) 
